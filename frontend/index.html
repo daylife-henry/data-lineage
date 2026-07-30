@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>DB Lineage - Database Object Lineage Analyzer</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body { height: 100%; width: 100%; overflow: hidden; }
+  body { padding-right: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f5f5f5; color: #333;
+    display: flex; flex-direction: column;
+  }
+
+  /* ── 顶部 Header ── */
+  header {
+    background: #4a90d9; color: #fff; padding: 10px 24px;
+    display: flex; align-items: center; gap: 16px; flex-shrink: 0;
+  }
+  header h1 { font-size: 17px; font-weight: 500; }
+  .header-subtitle { font-size: 15px; font-weight: 500; color: #fff; }
+  #headerStats { font-size: 15px; font-weight: 500; color: #fff; }
+
+  /* ── 搜索栏 ── */
+  .search-bar {
+    background: #fff; padding: 10px 20px;
+    border-bottom: 1px solid #e0e0e0;
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center; flex-shrink: 0;
+  }
+  .search-bar input {
+    flex: 1; min-width: 180px; padding: 7px 12px;
+    border: 1px solid #ccc; border-radius: 6px; font-size: 13px; outline: none;
+    transition: border-color .15s;
+  }
+  .search-bar input:focus { border-color: #1a1a2e; }
+  .search-bar select {
+    padding: 7px 10px; border: 1px solid #ccc;
+    border-radius: 6px; font-size: 13px; background: #fff; outline: none;
+  }
+  .search-bar button {
+    padding: 7px 16px; border: none; border-radius: 6px;
+    cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap;
+    transition: opacity .15s;
+  }
+  .search-bar button:hover { opacity: 0.85; }
+  .btn-search       { background: #1565c0; color: #fff; }
+  .btn-export       { background: #2e7d32; color: #fff; }
+  .btn-export-both  { background: #1565c0; color: #fff; }
+
+  /* ── 主体区域 ── */
+  .main {
+    flex: 1; display: flex; overflow: hidden; min-height: 0;
+  }
+
+  /* ── 左侧搜索列表 ── */
+  .sidebar {
+    width: 280px; min-width: 200px; background: #fff;
+    border-right: 1px solid #e0e0e0; overflow-y: auto; flex-shrink: 0;
+    display: flex; flex-direction: column;
+  }
+  .sidebar-title {
+    padding: 10px 16px; font-size: 12px; font-weight: 600;
+    color: #555; background: #f9f9f9; border-bottom: 1px solid #eee; flex-shrink: 0;
+  }
+  #resultList { flex: 1; overflow-y: auto; }
+  .obj-item {
+    padding: 10px 16px; border-bottom: 1px solid #f0f0f0;
+    cursor: pointer; transition: background .12s;
+  }
+  .obj-item:hover  { background: #f0f4ff; }
+  .obj-item.active { background: #e8eeff; }
+  .obj-name { font-size: 13px; font-weight: 500; color: #222; }
+  .obj-meta { font-size: 11px; color: #999; margin-top: 3px;
+              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .type-badge {
+    display: inline-block; padding: 1px 6px; border-radius: 3px;
+    font-size: 10px; font-weight: 700; margin-right: 4px;
+  }
+  .type-VIEW      { background: #e3f2fd; color: #1565c0; }
+  .type-TABLE     { background: #e8f5e9; color: #2e7d32; }
+  .type-PROCEDURE { background: #fff3e0; color: #e65100; }
+  .type-FUNCTION  { background: #f3e5f5; color: #6a1b9a; }
+  .type-UNKNOWN   { background: #f5f5f5; color: #757575; }
+  #msg { padding: 12px 16px; color: #bbb; font-size: 13px; }
+
+  /* ── 右侧图表区 ── */
+  .chart-area {
+    flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0;
+  }
+
+  /* 图表工具栏 */
+  .chart-toolbar {
+    padding: 7px 16px; background: #e8f0fe; border-bottom: 1px solid #c5d8f0;
+    display: flex; gap: 8px; align-items: center; flex-shrink: 0; flex-wrap: wrap;
+  }
+  .chart-toolbar .dir-label {
+    font-size: 12px; font-weight: 700; color: #333;
+  }
+  .tab {
+    padding: 5px 14px; border-radius: 5px; cursor: pointer;
+    border: 1px solid #ccc; background: #fff; font-size: 12px;
+    transition: all .12s;
+  }
+  .tab:hover { background: #f5f5f5; }
+  .tab.active { background: #4caf50; color: #fff; border-color: #4caf50; }
+  .toolbar-action-btn {
+    padding: 5px 12px; border-radius: 5px; cursor: pointer;
+    border: 1px solid #2e7d32; background: #2e7d32; color: #fff;
+    font-size: 12px; font-weight: 600; transition: opacity .12s;
+  }
+  .toolbar-action-btn:hover { opacity: 0.88; }
+  .zoom-label {
+    font-size: 12px; font-weight: 700; color: #333; margin-right: 4px;
+    border-left: 2px solid #c5d8f0; padding-left: 14px;
+  }
+  .chart-zoom-btn {
+    width: 26px; height: 26px; border: 1px solid #ccc;
+    border-radius: 5px; background: #fff; cursor: pointer;
+    font-size: 14px; font-weight: 700; color: #555;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: background .12s;
+  }
+  .chart-zoom-btn:hover { background: #f0f0f0; }
+  .chart-zoom-btn:active { background: #e0e0e0; }
+  .chart-zoom-level {
+    min-width: 40px; text-align: center;
+    border: 1px solid #e0e0e0; border-radius: 4px;
+    padding: 3px 6px; background: #fff;
+    font-size: 11px; font-weight: 600; color: #333;
+  }
+  .auto-font-toggle {
+    display: flex; align-items: center; gap: 4px; cursor: pointer;
+    padding: 3px 8px; border: 1px solid #d0d0d0; border-radius: 4px;
+    background: #fff; font-size: 12px; color: #555;
+    transition: all .12s;
+  }
+  .auto-font-toggle:hover { background: #f0f0f0; }
+  .auto-font-toggle.active { background: #e3f2fd; border-color: #1565c0; color: #1565c0; }
+  .node-count-info { font-size: 11px; color: #999; margin-left: 4px; }
+  #chartTitle {
+    margin-left: auto; color: #888; font-size: 11px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 360px;
+  }
+
+  /* 图表包裹层：默认 fit 容器，手动放大后出现滚动条 */
+  .chart-wrapper {
+    flex: 1; position: relative; overflow: auto;
+    min-height: 0; background: #fff;
+  }
+
+  /* ECharts 画布：默认 100% 填满容器；手动缩放时由 JS 设置具体 px */
+  #chart {
+    width: 100%; height: 100%;
+    min-width: 0; min-height: 0;
+  }
+
+  /* 右侧垂直拖拽条（保留 DOM，不再使用） */
+  #rightSlider {
+    display: none;
+  }
+
+  /* 空状态 */
+  #emptyState {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 10px; background: #fff;
+    color: #ccc; font-size: 15px; pointer-events: none;
+  }
+  #emptyState.hidden { display: none; }
+  #emptyState .icon { font-size: 40px; }
+
+  /* Toast */
+  #toast {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 9999;
+    min-width: 220px;
+    max-width: 420px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    color: #fff;
+    background: rgba(42, 45, 52, 0.94);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18);
+    font-size: 13px;
+    line-height: 1.35;
+    opacity: 0;
+    transform: translateY(12px);
+    pointer-events: none;
+    transition: opacity .22s ease, transform .22s ease;
+  }
+  #toast.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  #toast.success { background: rgba(46, 125, 50, 0.95); }
+  #toast.error   { background: rgba(198, 40, 40, 0.95); }
+
+
+  /* 响应式 */
+  @media (max-width: 700px) {
+    .main { flex-direction: column; }
+    .sidebar { width: 100%; height: 180px; border-right: none; border-bottom: 1px solid #e0e0e0; }
+    .chart-area { min-height: 300px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <h1>数据库血缘分析工具</h1>
+  <span style="margin-left:auto"></span>
+  <span class="header-subtitle">代码库分析:</span>
+  <span id="headerStats">Loading...</span>
+</header>
+
+<!-- 搜索栏 -->
+<div class="search-bar">
+  <input id="searchInput" type="text" placeholder="Enter keyword, press Enter or click Search"
+         onkeydown="if(event.key==='Enter')doSearch()"/>
+  <select id="depthSelect">
+    <option value="2">Depth 2</option>
+    <option value="3" selected>Depth 3</option>
+    <option value="4">Depth 4</option>
+    <option value="5">Depth 5</option>
+    <option value="6">Depth 6</option>
+    <option value="10">Depth 10</option>
+    <option value="20">Depth 20</option>
+  </select>
+  <button class="btn-search" onclick="doSearch()">Search</button>
+  <button class="btn-export" onclick="doExport()">Export XMind</button>
+  <button class="btn-export-both" onclick="doExportBoth()">Export Both</button>
+</div>
+
+<!-- 主区域 -->
+<div class="main">
+
+  <!-- 左侧搜索列表 -->
+  <div class="sidebar">
+    <div class="sidebar-title">Search Results</div>
+    <div id="resultList"><div id="msg">Enter keyword to search</div></div>
+  </div>
+
+  <!-- 右侧图表 -->
+  <div class="chart-area">
+
+    <!-- 工具栏 -->
+    <div class="chart-toolbar">
+      <span class="dir-label">Direction:</span>
+      <button class="tab active" id="tab-down" onclick="switchTab('dependents')">Downstream</button>
+      <button class="tab"        id="tab-up"   onclick="switchTab('dependencies')">Upstream</button>
+      <button class="toolbar-action-btn" onclick="copyCurrentObj()">复制选中对象的名字</button>
+      <span style="margin-left:16px; display:flex; align-items:center; gap:6px; font-size:11px; color:#555">
+        <span class="zoom-label">Scale:</span>
+        <button class="chart-zoom-btn" id="chartZoomOut" title="Zoom out chart">−</button>
+        <span class="chart-zoom-level" id="chartZoomLevel">100%</span>
+        <button class="chart-zoom-btn" id="chartZoomIn"  title="Zoom in chart">+</button>
+        <button class="chart-zoom-btn" id="chartZoomReset" title="Reset zoom" style="font-size:11px">⟳</button>
+      </span>
+      <span style="margin-left:8px; display:flex; align-items:center; gap:6px; font-size:11px; color:#555">
+        <span class="zoom-label">Font:</span>
+        <button class="chart-zoom-btn" onclick="zoomOut()" title="Decrease font size">A−</button>
+        <span class="chart-zoom-level" id="zoomLevel">12</span>
+        <button class="chart-zoom-btn" onclick="zoomIn()" title="Increase font size">A+</button>
+        <span class="auto-font-toggle" id="autoFontToggle" onclick="toggleAutoFont()">
+          <span id="autoFontLabel">Auto</span>
+        </span>
+        <span class="node-count-info" id="nodeCountInfo"></span>
+      </span>
+      <span style="margin-left:8px; display:flex; align-items:center; gap:12px; font-size:11px; color:#888">
+        <span style="display:flex; align-items:center; gap:4px"><span style="width:10px;height:10px;border-radius:50%;background:#2e7d32;display:inline-block"></span>TABLE</span>
+        <span style="display:flex; align-items:center; gap:4px"><span style="width:10px;height:10px;border-radius:50%;background:#1565c0;display:inline-block"></span>VIEW</span>
+        <span style="display:flex; align-items:center; gap:4px"><span style="width:10px;height:10px;border-radius:50%;background:#e65100;display:inline-block"></span>PROCEDURE</span>
+        <span style="display:flex; align-items:center; gap:4px"><span style="width:10px;height:10px;border-radius:50%;background:#6a1b9a;display:inline-block"></span>FUNCTION</span>
+        <span style="display:flex; align-items:center; gap:4px"><span style="width:10px;height:10px;border-radius:50%;background:#e53935;display:inline-block"></span>CYCLE</span>
+      </span>
+      <span id="chartTitle"></span>
+    </div>
+
+    <!-- 图表包裹层 -->
+    <div class="chart-wrapper">
+
+      <!-- ECharts 画布 -->
+      <div id="chart"></div>
+
+      <!-- 右侧垂直滚动条（ECharts dataZoom slider） -->
+      <div id="rightSlider"></div>
+
+      <!-- 空状态 -->
+      <div id="emptyState">
+        <div class="icon">DB</div>
+        <div>Search and select an object</div>
+      </div>
+
+
+    </div><!-- .chart-wrapper -->
+  </div><!-- .chart-area -->
+</div><!-- .main -->
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+'use strict';
+
+let chartInst = null;
+let currentObj = null;
+let selectedObjName = null;
+let currentDirection = 'dependents';
+let fontSize = 12;
+const MIN_FONT = 6;
+const MAX_FONT = 24;
+
+// Scale 缩放（1.0 = 默认自适应）
+let chartScale = 1.0;
+const MIN_SCALE = 0.2;
+const MAX_SCALE = 3.0;
+
+// 当前树数据（供 scale/font 变化后重绘）
+let lastTree = null;
+let lastDirection = 'dependents';
+let lastRootName = '';
+
+let autoFont = true; // 是否自动调整字体
+let toastTimer = null;
+
+const TYPE_COLORS = {
+  TABLE: '#2e7d32', VIEW: '#1565c0', PROCEDURE: '#e65100',
+  FUNCTION: '#6a1b9a', UNKNOWN: '#757575',
+};
+
+// ── ECharts 实例管理 ──────────────────────────────────────
+// 每次重绘前销毁旧实例，确保尺寸干净
+function getOrCreateChart(w, h) {
+  const el = document.getElementById('chart');
+  if (chartInst) {
+    chartInst.dispose();
+    chartInst = null;
+  }
+  el.style.width  = w + 'px';
+  el.style.height = h + 'px';
+  chartInst = echarts.init(el, null, { width: w, height: h });
+  return chartInst;
+}
+
+// 获取 chart-wrapper 容器的实际尺寸
+function getWrapperSize() {
+  const wrapper = document.querySelector('.chart-wrapper');
+  return {
+    w: wrapper.clientWidth  || 800,
+    h: wrapper.clientHeight || 500,
+  };
+}
+
+// ── 字号缩放 ──────────────────────────────────────────────
+function zoomIn() {
+  if (fontSize >= MAX_FONT) return;
+  fontSize = Math.min(MAX_FONT, fontSize + 1);
+  document.getElementById('zoomLevel').textContent = fontSize;
+  if (lastTree) renderTree(lastTree, lastDirection, lastRootName);
+}
+function zoomOut() {
+  if (fontSize <= MIN_FONT) return;
+  fontSize = Math.max(MIN_FONT, fontSize - 1);
+  document.getElementById('zoomLevel').textContent = fontSize;
+  if (lastTree) renderTree(lastTree, lastDirection, lastRootName);
+}
+
+// ── Scale 缩放（放大画布，触发滚动条） ────────────────────
+function chartZoomIn() {
+  if (chartScale >= MAX_SCALE) return;
+  chartScale = Math.min(MAX_SCALE, +(chartScale + 0.1).toFixed(1));
+  document.getElementById('chartZoomLevel').textContent = Math.round(chartScale * 100) + '%';
+  if (lastTree) renderTree(lastTree, lastDirection, lastRootName);
+}
+function chartZoomOut() {
+  if (chartScale <= MIN_SCALE) return;
+  chartScale = Math.max(MIN_SCALE, +(chartScale - 0.1).toFixed(1));
+  document.getElementById('chartZoomLevel').textContent = Math.round(chartScale * 100) + '%';
+  if (lastTree) renderTree(lastTree, lastDirection, lastRootName);
+}
+function chartZoomReset() {
+  chartScale = 1.0;
+  document.getElementById('chartZoomLevel').textContent = '100%';
+  if (lastTree) renderTree(lastTree, lastDirection, lastRootName);
+}
+
+// ── 自动字体开关 ──────────────────────────────────────────
+function toggleAutoFont() {
+  autoFont = !autoFont;
+  const el = document.getElementById('autoFontToggle');
+  el.classList.toggle('active', autoFont);
+  document.getElementById('autoFontLabel').textContent = autoFont ? 'Auto' : 'Manual';
+  if (currentObj) loadLineage(currentObj, currentDirection);
+}
+
+// ── 统计节点数量 ──────────────────────────────────────────
+function countNodes(node) {
+  let count = 1;
+  if (node.children) for (const c of node.children) count += countNodes(c);
+  return count;
+}
+
+// 根据节点数量计算推荐字体大小
+function calcAutoFont(totalNodes) {
+  if (totalNodes <= 10) return 14;
+  if (totalNodes <= 20) return 12;
+  if (totalNodes <= 30) return 10;
+  if (totalNodes <= 50) return 9;
+  if (totalNodes <= 80) return 8;
+  if (totalNodes <= 120) return 7;
+  return 6;
+}
+
+// ── 搜索 ──────────────────────────────────────────────────
+async function doSearch() {
+  const kw = document.getElementById('searchInput').value.trim();
+  if (!kw) return;
+  try {
+    const res  = await fetch(`/api/search?keyword=${encodeURIComponent(kw)}&limit=100`);
+    const data = await res.json();
+    renderList(data.results || []);
+  } catch(e) {
+    document.getElementById('resultList').innerHTML =
+      `<div id="msg" style="color:#e53935">Error: ${e.message}</div>`;
+  }
+  showEmpty('Select an object from the list');
+}
+
+function renderList(items) {
+  const el = document.getElementById('resultList');
+  if (!items.length) {
+    el.innerHTML = '<div id="msg">No results found</div>';
+    return;
+  }
+  el.innerHTML = items.map(item => {
+    const fname = escHtml(item.full_name || item.name);
+    const file  = escHtml((item.source_file || '').replace(/\\/g,'/').split('/').pop() || '');
+    const name  = escHtml(item.name);
+    return `<div class="obj-item" onclick="selectObj('${name}', this)">
+      <div class="obj-name">
+        <span class="type-badge type-${item.obj_type}">${item.obj_type}</span>${fname}
+      </div>
+      <div class="obj-meta">${file}</div>
+    </div>`;
+  }).join('');
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
+function selectObj(name, el) {
+  document.querySelectorAll('.obj-item').forEach(e => e.classList.remove('active'));
+  if (el) el.classList.add('active');
+  currentObj = name;
+  loadLineage(name, currentDirection);
+}
+
+function switchTab(dir) {
+  currentDirection = dir;
+  document.getElementById('tab-down').classList.toggle('active', dir === 'dependents');
+  document.getElementById('tab-up').classList.toggle('active', dir === 'dependencies');
+  if (currentObj) loadLineage(currentObj, dir);
+}
+
+// ── 血缘加载 ──────────────────────────────────────────────
+async function loadLineage(name, direction) {
+  const depth = parseInt(document.getElementById('depthSelect').value); // Depth N = max_depth N（含根节点）
+  try {
+    const res  = await fetch(`/api/lineage/${direction}?name=${encodeURIComponent(name)}&max_depth=${depth}`);
+    const data = await res.json();
+    if (data.tree) {
+      renderTree(data.tree, direction, name);
+    } else {
+      showEmpty('No lineage data');
+    }
+  } catch(e) {
+    showEmpty('Load failed: ' + e.message);
+    console.error(e);
+  }
+}
+
+function showEmpty(msg) {
+  const el = document.getElementById('emptyState');
+  el.innerHTML = `<div class="icon">DB</div><div>${escHtml(msg)}</div>`;
+  el.classList.remove('hidden');
+}
+
+// ── 渲染树 ───────────────────────────────────────────────
+function renderTree(tree, direction, rootName) {
+  // 缓存当前树，供 font/scale 变化时重绘
+  lastTree      = tree;
+  lastDirection = direction;
+  lastRootName  = rootName;
+
+  document.getElementById('emptyState').classList.add('hidden');
+  const label = direction === 'dependents' ? 'Downstream' : 'Upstream';
+  document.getElementById('chartTitle').textContent = `${rootName}  ·  ${label}`;
+
+  // ── 1. 字体决策 ──────────────────────────────────────
+  const totalNodes = countNodes(tree);
+  let usedFont = fontSize;
+  if (autoFont) {
+    usedFont = calcAutoFont(totalNodes);
+    fontSize = usedFont;
+  }
+  document.getElementById('zoomLevel').textContent = usedFont;
+  document.getElementById('nodeCountInfo').textContent = `${totalNodes} nodes`;
+
+  // ── 2. 预计算层级信息（提前计算，用于画布高度） ──────────
+  function preCalcLevelInfo(node, level, info) {
+    if (!info[level]) info[level] = { count: 0, maxLabelLen: 0 };
+    info[level].count++;
+    if (node.children) {
+      for (const c of node.children) preCalcLevelInfo(c, level + 1, info);
+    }
+  }
+  const preLevelInfo = [];
+  preCalcLevelInfo(tree, 0, preLevelInfo);
+  const maxLevelNodes = Math.max(...preLevelInfo.map(l => l.count), 1);
+
+  // ── 3. 计算画布尺寸 ───────────────────────────────────
+  // 获取容器真实尺寸（Scale=1 时图表恰好填满容器）
+  const { w: containerW, h: containerH } = getWrapperSize();
+
+  // 估算单节点所需高度 = 两行标签 + 间距
+  const estLabelHeight = (usedFont + 8) * 2 + 20; // type行 + name行 + padding
+  const estNodeSpacing = estLabelHeight + usedFont * 2; // 节点高度 + 间距
+  // 画布高度 = max(容器高度 × scale, 所有节点所需的最小高度)
+  const minCanvasH = maxLevelNodes * estNodeSpacing + 100;
+  const canvasW = Math.round(containerW * chartScale);
+  const canvasH = Math.max(Math.round(containerH * chartScale), minCanvasH);
+
+  // ── 4. 创建/重建 ECharts 实例 ─────────────────────────
+  const myChart = getOrCreateChart(canvasW, canvasH);
+
+  // ── 5. 计算树的深度 ──────────────────────────────────
+  function calcDepth(n, d) {
+    if (!n.children || !n.children.length) return d;
+    return Math.max(...n.children.map(c => calcDepth(c, d + 1)));
+  }
+  const totalDepth = calcDepth(tree, 0);
+  // initialTreeDepth: 根据用户选择的 depth 和实际树深度决定初始展开层数
+  // -1 表示全部展开；正值表示只展开前 N 层（其余折叠）
+  const userDepth = parseInt(document.getElementById('depthSelect').value);
+  // 实际树深度 + 1 = 需要展开的层数（因为 depth 从 0 开始）
+  // 取用户选择和实际树深度的较小值，确保不会展开超出数据范围
+  const initDepth = Math.min(userDepth, totalDepth);
+
+  // 提前计算 labelMaxWidth（convertNode 需要）
+  const labelMaxWidth = Math.max(
+    120,
+    Math.floor(canvasW / Math.max(totalDepth + 2, 2) * 0.95) + usedFont * 8
+  );
+
+  // ── 6. 构建节点数据 ───────────────────────────────────
+  // initDepth > 0 时，ECharts 只展开前 initDepth 层，超出部分的子节点不显示
+  // 因此只有 depth < initDepth 的节点才是"真正有可见子节点"的
+  function convertNode(node, depth) {
+    const color    = node._cycle ? '#e53935' : (TYPE_COLORS[node.obj_type] || '#757575');
+    const objType  = node.obj_type || 'UNKNOWN';
+    const objName  = node.name;
+    const labelText = `{type|${objType}}\n{name|${objName}}`;
+    // 只有在当前展开深度内真正有可见子节点时，标签才放上方
+    const hasVisibleChildren = initDepth < 0
+      ? (node.children && node.children.length > 0)
+      : (depth < initDepth && node.children && node.children.length > 0);
+    return {
+      name:        labelText,
+      _rawName:    objName,
+      _objType:    objType,
+      _sourceFile: node.source_file || '',
+      _cycle:      node._cycle || false,
+      _color:      color,
+      itemStyle: {
+        color, borderColor: color, borderWidth: 2,
+        shadowBlur:  node._cycle ? 10 : 0,
+        shadowColor: node._cycle ? 'rgba(229,57,53,0.5)' : 'transparent',
+      },
+      // 根节点（depth=0）始终用 right 方向，避免被左边界截断
+      // 有可见子节点的非根节点：标签放在圆点上方（避免与连线重叠）
+      label: (depth === 0) ? {
+        position: 'right', verticalAlign: 'middle', align: 'left',
+        distance: 6, fontSize: usedFont,
+        width: labelMaxWidth,
+        overflow: 'truncate',
+        rich: {
+          type: { fontSize: Math.max(usedFont - 1, 6), fontWeight: 'bold', color: '#555' },
+          name: { fontSize: usedFont, color: '#222',
+                  overflow: 'truncate', lineHeight: usedFont + 6 },
+        },
+      } : hasVisibleChildren ? {
+        position: 'top', verticalAlign: 'bottom', align: 'center',
+        distance: 4, fontSize: usedFont,
+        width: labelMaxWidth,
+        overflow: 'truncate',
+        rich: {
+          type: { fontSize: Math.max(usedFont - 1, 6), fontWeight: 'bold', color: '#555' },
+          name: { fontSize: usedFont, color: '#222',
+                  overflow: 'truncate', lineHeight: usedFont + 6 },
+        },
+      } : undefined,
+      children: (node.children || []).map(c => convertNode(c, depth + 1)),
+    };
+  }
+  const ecData = convertNode(tree, 0);
+
+  // ── 7. 间距自适应算法 ─────────────────────────────────
+  // 使用已计算的 preLevelInfo（含 maxLabelLen，在后面补充计算）
+  const levelInfo = preLevelInfo;
+  // 补充 maxLabelLen（需要用转换后的 ecData 计算）
+  function calcMaxLabelLen(node, level) {
+    if (!levelInfo[level]) levelInfo[level] = { count: 0, maxLabelLen: 0 };
+    const labelLen = (node.name || '').length * usedFont * 0.6;
+    levelInfo[level].maxLabelLen = Math.max(levelInfo[level].maxLabelLen, labelLen);
+    if (node.children) {
+      for (const c of node.children) calcMaxLabelLen(c, level + 1);
+    }
+  }
+  calcMaxLabelLen(ecData, 0);
+
+  // 同层级节点间距（nodeGap）：
+  // - 核心原则：nodeGap 必须 ≥ 标签实际渲染高度，确保同层级节点不重叠
+  // - 标签结构：{type|类型}\n{name|名称}（两行）
+  // - 字体越大，标签高度越大，nodeGap 同步增大
+  // - 节点密集时适当缩小，但必须保证不小于标签高度
+  // - 注意：ECharts rich text 行高计算需要额外预留空间（经验值：×2.5）
+  const typeLineHeight = (usedFont - 1) + 8;  // type 行高（再加大）
+  const nameLineHeight = usedFont + 8;          // name 行高（再加大）
+  const lineSpacing = 6;                         // 两行之间的间距（再加大）
+  const labelPadding = 16;                       // 标签上下内边距（再加大）
+  const actualLabelHeight = typeLineHeight + nameLineHeight + lineSpacing + labelPadding;
+  const safetyGap = usedFont * 3;                // 安全间距（再加大）
+  const idealNodeGap = actualLabelHeight + safetyGap;
+
+  // 密度因子：节点多时压缩，但最小保留 98%（几乎不压缩，优先保证不重叠）
+  const densityFactor = Math.max(0.98, 1 - (maxLevelNodes - 4) * 0.005);
+  // 高度因子：画布越高，可以分配更多垂直空间
+  const heightFactor = Math.min(2.0, Math.max(1.0, canvasH / 500));
+
+  // 最终 nodeGap = idealNodeGap * 密度调整 * 高度调整
+  // 硬约束：绝不能小于标签高度 × 5（防止重叠，大幅提高安全系数）
+  const dynamicNodeGap = Math.max(
+    100,  // 绝对最小值，防止任何情况下的重叠
+    actualLabelHeight * 5,  // 硬约束：标签高度 × 5
+    idealNodeGap * densityFactor * heightFactor
+  );
+
+  // 层级间距（layerPadding）：
+  // - 与字体大小成正比（基数加大）
+  // - 与平均标签长度相关（标签长需要更多空间）
+  // - 与画布宽度相关，但限制最大最小值（范围扩大）
+  const avgLabelWidth = levelInfo.reduce((a, l) => a + l.maxLabelLen, 0) / levelInfo.length;
+  const fontBasedPadding = usedFont * 12; // 加大字体基础间距
+  const labelBasedPadding = avgLabelWidth * 1.5; // 加大标签长度影响权重
+  const canvasBasedPadding = canvasW / Math.max(totalDepth, 3) * 0.6; // 加大画布宽度分配比例
+  const dynamicLayerPadding = Math.max(
+    usedFont * 8,  // 最小间距
+    actualLabelHeight * 3,  // 硬约束：标签高度 × 3（防止跨列标签重叠）
+    Math.min(
+      usedFont * 25, // 最大间距限制
+      (fontBasedPadding + labelBasedPadding + canvasBasedPadding) / 3
+    )
+  ) * 0.65;  // 压缩层级间距为现有长度的 65%
+
+  // 调试信息（方便排查重叠问题）
+  console.log('[Layout Debug] usedFont:', usedFont,
+              '| actualLabelHeight:', actualLabelHeight,
+              '| dynamicNodeGap:', Math.round(dynamicNodeGap),
+              '| dynamicLayerPadding:', Math.round(dynamicLayerPadding),
+              '| densityFactor:', densityFactor.toFixed(2),
+              '| heightFactor:', heightFactor.toFixed(2));
+  document.getElementById('chartTitle').textContent =
+    `${rootName}  ·  ${label}  |  Font:${usedFont}  |  Gap:${Math.round(dynamicNodeGap)}`;
+
+  // ── 8. ECharts Option ────────────────────────────────
+  const mainOption = {
+    backgroundColor: '#fff',
+    tooltip: {
+      trigger: 'item', confine: true,
+      formatter(params) {
+        if (!params.data) return '';
+        const d    = params.data;
+        const file = d._sourceFile.replace(/\\/g, '/').split('/').pop() || '—';
+        const cyc  = d._cycle ? '<br><span style="color:#e53935;font-weight:bold">⚠ Cycle detected</span>' : '';
+        return `<b>${d._rawName}</b><br>Type: <b>${d._objType}</b><br>File: ${file}${cyc}`;
+      },
+    },
+    series: [{
+      type:   'tree',
+      data:   [ecData],
+      // 上下左右留白：让树充满整个画布，右侧留 labelMaxWidth 给叶子标签
+      top:    '2%',
+      left:   '2%',
+      bottom: '2%',
+      right:  labelMaxWidth + 'px',
+      layout: 'orthogonal',
+      orient: 'LR',
+      symbol: 'circle', symbolSize: 12,
+      nodeGap:      dynamicNodeGap,
+      layerPadding: dynamicLayerPadding,
+      edgeShape: 'curve',
+      initialTreeDepth: initDepth,
+      roam: false,  // 不用 ECharts 内置 roam，由容器滚动条承担
+      lineStyle: { width: 1.5, curveness: 0.25, color: '#c0c0c8' },
+      label: {
+        position: 'right', verticalAlign: 'middle', align: 'left',
+        distance: 6, fontSize: usedFont,
+        width: labelMaxWidth,
+        overflow: 'truncate',
+        rich: {
+          type: { fontSize: Math.max(usedFont - 1, 6), fontWeight: 'bold', color: '#555' },
+          name: { fontSize: usedFont, color: '#222',
+                  overflow: 'truncate', lineHeight: usedFont + 6 },
+        },
+      },
+      leaves: {
+        label: {
+          position: 'right', verticalAlign: 'middle', align: 'left',
+          distance: 6, fontSize: usedFont,
+          width: labelMaxWidth,
+          overflow: 'truncate',
+          rich: {
+            type: { fontSize: Math.max(usedFont - 1, 6), fontWeight: 'bold', color: '#555' },
+            name: { fontSize: usedFont, color: '#222',
+                    overflow: 'truncate', lineHeight: usedFont + 6 },
+          },
+        },
+      },
+      emphasis:         { focus: 'descendant' },
+      expandAndCollapse: true,
+      animationDuration:       300,
+      animationDurationUpdate: 500,
+    }],
+  };
+
+  myChart.setOption(mainOption, true);
+  myChart.on('click', (params) => {
+    const clickedName = params && params.data && params.data._rawName;
+    if (!clickedName) return;
+    selectedObjName = clickedName;
+    showToast(`Selected: ${clickedName}`, 'success');
+  });
+}
+
+// ── 搜索 ──────────────────────────────────────────────────
+async function doSearch() {
+  const kw = document.getElementById('searchInput').value.trim();
+  if (!kw) return;
+  try {
+    const res  = await fetch(`/api/search?keyword=${encodeURIComponent(kw)}&limit=100`);
+    const data = await res.json();
+    renderList(data.results || []);
+  } catch(e) {
+    document.getElementById('resultList').innerHTML =
+      `<div id="msg" style="color:#e53935">Error: ${e.message}</div>`;
+  }
+  showEmpty('Select an object from the list');
+}
+
+function renderList(items) {
+  const el = document.getElementById('resultList');
+  if (!items.length) {
+    el.innerHTML = '<div id="msg">No results found</div>';
+    return;
+  }
+  el.innerHTML = items.map(item => {
+    const fname = escHtml(item.full_name || item.name);
+    const file  = escHtml((item.source_file || '').replace(/\\/g, '/').split('/').pop() || '');
+    const name  = escHtml(item.name);
+    return `<div class="obj-item" onclick="selectObj('${name}', this)">
+      <div class="obj-name">
+        <span class="type-badge type-${item.obj_type}">${item.obj_type}</span>${fname}
+      </div>
+      <div class="obj-meta">${file}</div>
+    </div>`;
+  }).join('');
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function selectObj(name, el) {
+  document.querySelectorAll('.obj-item').forEach(e => e.classList.remove('active'));
+  if (el) el.classList.add('active');
+  currentObj = name;
+  selectedObjName = name;
+  loadLineage(name, currentDirection);
+}
+
+function switchTab(dir) {
+  currentDirection = dir;
+  document.getElementById('tab-down').classList.toggle('active', dir === 'dependents');
+  document.getElementById('tab-up').classList.toggle('active',   dir === 'dependencies');
+  if (currentObj) loadLineage(currentObj, dir);
+}
+
+// ── 血缘加载 ──────────────────────────────────────────────
+async function loadLineage(name, direction) {
+  selectedObjName = name;
+  const depth = parseInt(document.getElementById('depthSelect').value);
+  try {
+    const res  = await fetch(`/api/lineage/${direction}?name=${encodeURIComponent(name)}&max_depth=${depth}`);
+    const data = await res.json();
+    if (data.tree) {
+      renderTree(data.tree, direction, name);
+    } else {
+      showEmpty('No lineage data');
+    }
+  } catch(e) {
+    showEmpty('Load failed: ' + e.message);
+    console.error(e);
+  }
+}
+
+// ── 导出 ──────────────────────────────────────────────────
+function doExport() {
+  if (!currentObj) { alert('Select an object first'); return; }
+  const depth = parseInt(document.getElementById('depthSelect').value);
+  window.location.href = `/api/export/xmind?name=${encodeURIComponent(currentObj)}&direction=${currentDirection}&max_depth=${depth}`;
+}
+function doExportBoth() {
+  if (!currentObj) { alert('Select an object first'); return; }
+  const depth = parseInt(document.getElementById('depthSelect').value);
+  window.location.href = `/api/export/xmind?name=${encodeURIComponent(currentObj)}&both=true&max_depth=${depth}`;
+}
+
+// ── 复制 ──────────────────────────────────────────────────
+function showToast(message, type = '') {
+  const el = document.getElementById('toast');
+  if (!el) return;
+  el.textContent = message;
+  el.className = '';
+  el.classList.add('show');
+  if (type) el.classList.add(type);
+
+  if (toastTimer) {
+    clearTimeout(toastTimer);
+    toastTimer = null;
+  }
+  toastTimer = setTimeout(() => {
+    el.classList.remove('show', 'success', 'error');
+  }, 1800);
+}
+
+function copyCurrentObj() {
+  const copyName = selectedObjName || currentObj;
+  if (!copyName) { showToast('Select an object first', 'error'); return; }
+  if (!navigator.clipboard || !navigator.clipboard.writeText) {
+    showToast('Clipboard API is not available in this browser context', 'error');
+    return;
+  }
+  navigator.clipboard.writeText(copyName)
+    .then(() => showToast(`Copied: ${copyName}`, 'success'))
+    .catch((e) => showToast('Copy failed: ' + (e?.message || 'Unknown error'), 'error'));
+}
+
+// ── 统计 ──────────────────────────────────────────────────
+function loadStats() {
+  fetch('/api/stats')
+    .then(r => r.json())
+    .then(d => {
+      document.getElementById('headerStats').textContent =
+        d.node_count !== undefined
+          ? `${d.node_count} objects  ·  ${d.edge_count} edges`
+          : (d.error || 'No data');
+    })
+    .catch(() => {
+      document.getElementById('headerStats').textContent = 'Not connected';
+    });
+}
+
+// ── 窗口 resize 时自动重绘（Scale=1 时图表跟随窗口） ─────
+window.addEventListener('resize', () => {
+  if (!lastTree) return;
+  // Scale=1 时直接跟随容器，Scale>1 时维持当前比例
+  renderTree(lastTree, lastDirection, lastRootName);
+});
+
+window.addEventListener('keydown', (event) => {
+  if (!selectedObjName && !currentObj) return;
+  if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'c') return;
+
+  const activeTag = (document.activeElement && document.activeElement.tagName || '').toLowerCase();
+  if (activeTag === 'input' || activeTag === 'textarea') return;
+
+  event.preventDefault();
+  copyCurrentObj();
+});
+
+// ── 初始化 ───────────────────────────────────────────────
+document.getElementById('chartZoomIn').addEventListener('click', chartZoomIn);
+document.getElementById('chartZoomOut').addEventListener('click', chartZoomOut);
+document.getElementById('chartZoomReset').addEventListener('click', chartZoomReset);
+
+loadStats();
+</script>
+</body>
+</html>

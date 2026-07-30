@@ -1,0 +1,72 @@
+# DB Lineage 配置文件
+# 修改 repos 列表为你自己的 Git 仓库目录
+#
+# 使用建议（先看这里）：
+# 1) 先确认 SQL 属于哪种数据库，再设置 dialect（见下方“方言选择速查”）
+# 2) 本项目会“先按 dialect 解析，再尝试其他候选方言兜底”
+#    所以配置错误不一定会失败，但解析精度会下降（对象类型/引用关系可能不准）
+# 3) 如果一个仓库里混用多种数据库语法，建议按目录拆分后分别扫描
+#
+# 方言选择速查（数据库 -> dialect）：
+# - SQL Server / Azure Synapse      -> tsql
+# - Hive                            -> hive
+# - Spark SQL / Databricks          -> spark
+# - MySQL / MariaDB                 -> mysql
+# - PostgreSQL                      -> postgres
+# - BigQuery                        -> bigquery
+# - Snowflake                       -> snowflake
+# - Oracle                          -> oracle
+# - Amazon Redshift                 -> redshift
+# - 无法确定 / 接近 ANSI SQL        -> default（仅建议临时使用）
+
+# 要扫描的代码仓库/目录列表（支持多个）
+repos:
+  #- "./sample_sql"         # 相对路径
+  - "C:/work/Git/datalakechina/redshift/SRC"         # 相对路径
+  #- "C:/work/Git/shell"         # 相对路径
+  #- "C:/work/Git/python"         # 相对路径
+  # - "D:/my-etl-repo"    # 绝对路径（Windows）
+  # - "/home/user/etl"    # 绝对路径（Linux/Mac）
+
+# 如果你有多类 SQL 仓库，推荐拆分执行：
+# 例1（Redshift）：python scan.py --repos ./sql/redshift --dialect redshift
+# 例2（Postgres）：python scan.py --repos ./sql/postgres --dialect postgres
+# 也可维护多份配置文件（如 config.redshift.yaml / config.postgres.yaml）
+
+# SQL 方言（影响解析精度）
+# 可选值: tsql, hive, spark, mysql, postgres, bigquery, snowflake, oracle, redshift, default
+# 当前示例默认 postgres。
+# 若你当前主要分析的是 Amazon Redshift，请改为：dialect: "redshift"
+dialect: "redshift"
+
+# SQLite 数据库存储路径
+db_path: "lineage.db"
+
+# 是否开启详细日志
+verbose: true
+
+# 扫描时需要排除的目录/文件关键词
+exclude_patterns:
+  - ".git"
+  - "node_modules"
+  - "__pycache__"
+  - ".venv"
+  - "archive"
+  - "backup"
+
+# 识别的可扫描文件扩展名（SQL + Python + Shell）
+scan_extensions:
+  - ".sql"
+  - ".ddl"
+  - ".sp"
+  - ".proc"
+  - ".view"
+  - ".hql"
+  - ".py"
+  - ".sh"
+  - ".bash"
+  - ".ksh"
+  - ".zsh"
+  - ".ps1"
+  - ".bat"
+  - ".cmd"

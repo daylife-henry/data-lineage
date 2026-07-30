@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual Environment (旧方案，已不再使用)
+.venv/
+
+# Database
+lineage.db
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 注意：python/ 目录（内置嵌入式 Python）需要一起提交/复制，不要排除
